@@ -261,6 +261,7 @@ body.phone .pc-only, body:not(.phone) .phone-only, body:not(.admin) .admin-only 
 
   <!-- ---------- List ---------- -->
   <section class="panel" id="panel-list" hidden>
+    <div id="inboxNote" class="banner" hidden></div>
     <div class="card">
       <span class="section-label">Filter</span>
       <div class="filter-grid">
@@ -274,7 +275,7 @@ body.phone .pc-only, body:not(.phone) .phone-only, body:not(.admin) .admin-only 
         <div class="field check"><label><input type="checkbox" id="fMine"> My entries only</label></div>
       </div>
       <div class="filter-actions">
-        <button type="button" class="chip-btn" id="refreshBtn" title="Read the share folder again">⟳ Refresh</button>
+        <button type="button" class="chip-btn" id="refreshBtn" title="Read the share folder again and add phone uploads">⟳ Refresh</button>
         <span class="spacer"></span>
         <button type="button" class="chip-btn" id="clearBtn">Clear</button>
         <button type="button" class="chip-btn primary" id="searchBtn">🔍 Search</button>
@@ -477,7 +478,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
  * inbox on Refresh. */
 (function () {
   "use strict";
-  var APP_VERSION = "V1.4";  // bump on every release; build.py names the file QC-OSD_<version>.html
+  var APP_VERSION = "V1.5";  // bump on every release; build.py names the file QC-OSD_<version>.html
   var FORMAT_VERSION = 1;
   var MAX_BYTES = 20 * 1024 * 1024;
   var SHIFTS = ["SHIFT1", "SHIFT2"];
@@ -692,13 +693,29 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   // ---------- phone uploads (inbox/) ----------
+  // Phones save uploads through the iPhone/Android share sheet, which can rename them ("x.osd 2.txt", "x.txt")
+  // or drop them next to inbox/ instead of inside it, so look at every .txt/.json there and check the content.
+  var UPLOAD_NAME = /\.(txt|json)$/i;
+  async function inboxEntries() {
+    var out = [], d = await dir("inbox", true);
+    for await (var e of d.values()) {
+      if (e.kind === "file" && UPLOAD_NAME.test(e.name)) out.push({ dir: d, entry: e, where: "inbox/", strict: true });
+      else if (e.kind === "directory") for await (var e2 of e.values()) if (e2.kind === "file" && UPLOAD_NAME.test(e2.name)) out.push({ dir: e, entry: e2, where: "inbox/" + e.name + "/", strict: true });
+    }
+    for await (var e3 of S.root.values()) if (e3.kind === "file" && /osd/i.test(e3.name) && UPLOAD_NAME.test(e3.name)) out.push({ dir: S.root, entry: e3, where: "", strict: false });
+    return out;
+  }
   async function importInbox() {
-    var d = await dir("inbox", true), entries = [], done = 0, errors = [];
-    for await (var entry of d.values()) if (entry.kind === "file" && /\.(osd\.txt|json)$/i.test(entry.name)) entries.push(entry);
-    for (var entry of entries) {
+    var entries = [], done = 0, errors = [], found = 0;
+    try { entries = await inboxEntries(); } catch (e) { return { done: 0, found: 0, errors: ["inbox folder could not be read: " + e.message] }; }
+    for (var it of entries) {
+      var entry = it.entry, d = it.dir;
       try {
-        var b = JSON.parse(await (await entry.getFile()).text());
-        if (!b.qcosd_bundle || !b.report || !b.report.report_id || !b.report.part_number) throw new Error("not a QC OS&D upload");
+        var b;
+        try { b = JSON.parse(await (await entry.getFile()).text()); } catch (e) { if (!it.strict) continue; throw new Error("not a QC OS&D upload (could not read it as an upload file)"); }
+        if (!b || !b.qcosd_bundle) { if (!it.strict) continue; throw new Error("not a QC OS&D upload"); }
+        found++;
+        if (!b.report || !b.report.report_id || !b.report.part_number) throw new Error("the upload is incomplete");
         var r = upgrade(b.report);
         if (!isRegistered(r.author_id)) throw new Error("uploaded by " + r.author_id + ", who is not a registered user. Add them in User Mgmt, then press Refresh");
         if (!S.reports.some(function (x) { return x.report_id === r.report_id; })) {
@@ -711,9 +728,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         }
         await d.removeEntry(entry.name);
         done++;
-      } catch (e) { errors.push("inbox/" + entry.name + ": " + e.message + " (tried again on the next Refresh)"); }
+      } catch (e) { errors.push(it.where + entry.name + ": " + e.message + " (tried again on the next Refresh)"); }
     }
-    return { done: done, errors: errors };
+    return { done: done, found: found, errors: errors };
   }
 
   // ---------- material master ----------
@@ -798,7 +815,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     var inbox = await importInbox();
     if (inbox.done) await scanReports();
     S.readErrors = S.readErrors.concat(inbox.errors);
-    S.imported = inbox.done;
+    S.imported = inbox.done; S.inboxErrors = inbox.errors;
     await loadOptions();
     await loadMaterial();
     await writePhoneLists();
@@ -949,7 +966,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       $("updateBar").hidden = false;
     } catch (e) { /* offline: try again later */ }
   }
-  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") checkForUpdate(); });
+  var lastInboxCheck = 0;
+  async function checkInbox() {
+    if (PHONE || !S.user || !S.root || Date.now() - lastInboxCheck < 30000) return;
+    lastInboxCheck = Date.now();
+    try {
+      var inbox = await importInbox();
+      if (!inbox.done && !inbox.errors.length) return;
+      await scanReports();
+      S.readErrors = S.readErrors.concat(inbox.errors);
+      S.imported = inbox.done; S.inboxErrors = inbox.errors;
+      renderStatus(); renderList();
+    } catch (e) { /* folder busy or permission lost; the next Refresh reports it */ }
+  }
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") { checkForUpdate(); checkInbox(); } });
 
   // ---------- user mgmt ----------
   function renderUsers() {
@@ -1317,7 +1347,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
   var shown = [];
+  function renderInboxNote() {
+    var el = $("inboxNote"), errs = S.inboxErrors || [];
+    if (errs.length) show(el, "Phone uploads that could not be added:\n• " + errs.join("\n• "), "error");
+    else if (S.imported) show(el, S.imported + " phone upload(s) added from the inbox folder.", "success");
+    else show(el, "");
+  }
   function renderList() {
+    renderInboxNote();
     shown = filtered();
     S.picked = new Set([].filter.call(Array.from(S.picked), function (p) { return shown.some(function (r) { return r._path === p; }); }));
     $("listCount").textContent = shown.length + " entr" + (shown.length === 1 ? "y" : "ies") + (S.picked.size ? " · " + S.picked.size + " selected (Excel uses the selection)" : "");
