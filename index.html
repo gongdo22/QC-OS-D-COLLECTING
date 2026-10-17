@@ -102,6 +102,8 @@ button.save:disabled, .chip-btn:disabled { opacity: .55; cursor: not-allowed; }
 /* phone mode: entries stay on the phone until uploaded to the share folder's inbox */
 body.phone .pc-only, body:not(.phone) .phone-only, body:not(.admin) .admin-only { display: none !important; }
 .level { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); text-transform: uppercase; }
+.help summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+.help ol { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
 .level.admin { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .tab-count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: var(--error); color: #fff; font-size: 11px; line-height: 18px; }
 .outbox-list { display: flex; flex-direction: column; gap: 10px; }
@@ -143,8 +145,17 @@ body.phone .pc-only, body:not(.phone) .phone-only, body:not(.admin) .admin-only 
     <div id="setupError" class="banner error" hidden></div>
     <div class="phone-only field">
       <span class="hint" id="pUsersInfo"></span>
-      <button type="button" class="attach-btn" id="pUsersBtn">📥 Load users.json</button>
-      <span class="hint">Pick <b>masters/users.json</b> in the Teams share folder (OneDrive app). Load it again when users are added or changed.</span>
+      <button type="button" class="attach-btn" id="pSyncBtn">📥 Update Lists from Share Folder</button>
+      <span class="hint">Pick <b>masters/phone-lists.json</b> in the Teams share folder. It holds the user list, Material Master and Responsibility / Issue Type choices in one file.</span>
+      <details class="hint help">
+        <summary>Can't see OneDrive or the share folder in the file list?</summary>
+        <ol>
+          <li>Install the <b>OneDrive</b> app and sign in with your company account.</li>
+          <li>Once per person: in Teams, open the channel's <b>Files</b> tab and choose <b>Add shortcut to OneDrive</b> (or in OneDrive/SharePoint web, <b>Add shortcut to My files</b>). Teams folders only show up on a phone through this shortcut.</li>
+          <li>Press the button above. In the iPhone file list tap <b>Browse</b> → <b>⋯</b> (top right) → <b>Edit</b> and turn on <b>OneDrive</b>.</li>
+          <li>Open <b>OneDrive → My files → (share folder) → masters</b> and pick <b>phone-lists.json</b>.</li>
+        </ol>
+      </details>
     </div>
     <div class="hint pc-only">Works in Microsoft Edge or Google Chrome. Nothing is installed. The browser asks once for permission to read and save files in that folder.</div>
   </section>
@@ -329,20 +340,26 @@ body.phone .pc-only, body:not(.phone) .phone-only, body:not(.admin) .admin-only 
     </div>
     <div class="card phone-only">
       <span class="section-label">Lists from the share folder</span>
-      <span class="hint">Optional. Open the share folder's <b>masters</b> folder from here to load material_master.xlsx (part lookup) and options.json (Responsibility / Issue Type choices). They are kept on this phone; load them again when they change.</span>
-      <input type="file" id="pMmFile" accept=".xlsx" hidden>
-      <input type="file" id="pOptFile" accept=".json,application/json,text/plain" hidden>
-      <button type="button" class="attach-btn" id="pMmBtn">📥 Load material_master.xlsx</button>
-      <button type="button" class="attach-btn" id="pOptBtn">📥 Load options.json</button>
-      <button type="button" class="attach-btn" id="pUsersBtn2">📥 Load users.json</button>
+      <div class="hint" id="pListsInfo"></div>
+      <button type="button" class="attach-btn" id="pSyncBtn2">📥 Update Lists from Share Folder</button>
+      <span class="hint">Pick <b>masters/phone-lists.json</b> (users, Material Master, choices in one file). A PC running this page keeps that file up to date. You can also pick material_master.xlsx, options.json or users.json from the same folder; several at once is fine.</span>
       <div id="pMastersMsg" class="banner" hidden></div>
+      <details class="hint help">
+        <summary>Can't see OneDrive or the share folder in the file list?</summary>
+        <ol>
+          <li>Install the <b>OneDrive</b> app and sign in with your company account.</li>
+          <li>Once per person: in Teams, open the channel's <b>Files</b> tab and choose <b>Add shortcut to OneDrive</b> (or in OneDrive/SharePoint web, <b>Add shortcut to My files</b>). Teams folders only show up on a phone through this shortcut.</li>
+          <li>Press the button above. In the iPhone file list tap <b>Browse</b> → <b>⋯</b> (top right) → <b>Edit</b> and turn on <b>OneDrive</b>.</li>
+          <li>Open <b>OneDrive → My files → (share folder) → masters</b> and pick <b>phone-lists.json</b>.</li>
+        </ol>
+      </details>
     </div>
     <div class="card hint" id="sInfo"></div>
   </section>
   </div>
 </div>
 
-<input type="file" id="pUsersFile" accept=".json,application/json,text/plain" hidden>
+<input type="file" id="pSyncFile" accept=".json,.xlsx,application/json,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden>
 <div class="modal-overlay" id="filesModal" hidden>
   <div class="modal">
     <div class="modal-head"><h2 id="filesTitle">Files</h2><button type="button" class="modal-close" id="filesClose">×</button></div>
@@ -416,7 +433,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
  * inbox on Refresh. */
 (function () {
   "use strict";
-  var APP_VERSION = "V1.2";  // bump on every release; build.py names the file QC-OSD_<version>.html
+  var APP_VERSION = "V1.3";  // bump on every release; build.py names the file QC-OSD_<version>.html
   var FORMAT_VERSION = 1;
   var MAX_BYTES = 20 * 1024 * 1024;
   var SHIFTS = ["SHIFT1", "SHIFT2"];
@@ -511,6 +528,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     fn(list);
     await writeFile("masters", "users.json", JSON.stringify({ format_version: 1, users: list }, null, 2));
     S.users = list;
+    await writePhoneLists();
   }
   async function checkLogin(email, pin) {
     email = normEmail(email);
@@ -534,8 +552,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     var clean = function (a) { var out = []; a.forEach(function (v) { v = v.trim(); if (v && out.indexOf(v) < 0) out.push(v); }); return out; };
     next = { teams: clean(next.teams), issue_types: clean(next.issue_types) };
     if (!next.teams.length || !next.issue_types.length) return show($("optError"), "Keep at least one Responsibility and one Issue Type.", "error");
-    try { await writeFile("masters", "options.json", JSON.stringify(next, null, 2)); S.options = next; renderOptions(); show($("optError"), ""); }
+    try { await writeFile("masters", "options.json", JSON.stringify(next, null, 2)); S.options = next; renderOptions(); show($("optError"), ""); await writePhoneLists(); }
     catch (e) { show($("optError"), "Could not save options: " + e.message, "error"); }
+  }
+
+  // ---------- phone lists (one file a phone can pick from OneDrive) ----------
+  async function writePhoneLists() {
+    var body = { users: S.users, options: S.options, material: S.mm ? S.mm.rows : null };
+    try {
+      var old = JSON.parse(await (await readFile("masters", "phone-lists.json")).text());
+      if (JSON.stringify({ users: old.users, options: old.options, material: old.material }) === JSON.stringify(body)) return;
+    } catch (e) { /* missing or unreadable: write a fresh one */ }
+    try { await writeFile("masters", "phone-lists.json", JSON.stringify(Object.assign({ qcosd_phone_lists: 1, updated_at: new Date().toISOString() }, body))); }
+    catch (e) { S.readErrors.push("masters/phone-lists.json could not be written: " + e.message); }
   }
 
   // ---------- reports ----------
@@ -726,6 +755,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     S.imported = inbox.done;
     await loadOptions();
     await loadMaterial();
+    await writePhoneLists();
     renderOptions(); renderStatus();
   }
   var BAD_LOGIN = "Email or PIN is not correct, or this email is not registered. Ask an administrator.";
@@ -808,6 +838,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     $("sFolder").textContent = S.root ? S.root.name : "";
     $("sWho").innerHTML = esc(S.user.name) + " · " + esc(S.user.id) + ' <span class="level' + (S.user.role !== "user" ? " admin" : "") + '">' + LEVEL_LABEL[S.user.role] + "</span>";
     $("sPinField").hidden = S.user.role === "master";
+    if (PHONE) renderListsInfo();
     $("sInfo").innerHTML = (PHONE ? "Your entries on this phone: " + myDrafts().length + " · Parts loaded: " + (S.mm ? S.mm.rows.length.toLocaleString() : 0) + " · Users loaded: " + S.users.length : "Reports: " + S.reports.length) + " · App " + APP_VERSION + " · Format version " + FORMAT_VERSION +
       (S.readErrors.length ? "<br><br>Files that could not be read:<br>" + S.readErrors.map(esc).join("<br>") : "");
   }
@@ -922,7 +953,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     try {
       var rows = await parseMaterial(await f.arrayBuffer());
       await writeFile("masters", "material_master.xlsx", f);
-      S.mmMeta = null; await loadMaterial(); renderStatus();
+      S.mmMeta = null; await loadMaterial(); await writePhoneLists(); renderStatus();
       show($("mmStatus"), "Uploaded. " + rows.length.toLocaleString() + " parts.", "success");
     } catch (e) { show($("mmStatus"), e.problems ? "This file does not match the Material Master layout.\n• " + e.problems.join("\n• ") : e.message, "error"); }
     $("mmFile").value = "";
@@ -1050,24 +1081,50 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function renderUsersInfo(list) {
     $("pUsersInfo").textContent = list.length ? "User list on this phone: " + list.length + " user(s)." : "No user list on this phone yet. Only the master account can sign in.";
   }
-  $("pUsersBtn").onclick = $("pUsersBtn2").onclick = function () { $("pUsersFile").click(); };
-  $("pUsersFile").onchange = async function () {
-    var f = $("pUsersFile").files[0]; if (!f) return;
-    var msg = S.user ? $("pMastersMsg") : $("setupError");
-    try {
-      var raw = JSON.parse(await f.text()), list = cleanUsers(raw.users);
-      if (!Array.isArray(raw.users)) throw new Error("This is not the share folder's users.json.");
-      await idbPut("users", list); S.users = list; renderUsersInfo(list);
-      if (S.user) renderSettings();
-      show(msg, "Loaded " + list.length + " user(s).", "success");
-    } catch (e) { show(msg, "Could not load users.json: " + e.message, "error"); }
-    $("pUsersFile").value = "";
+  async function renderListsInfo() {
+    var at = await idbGet("listsUpdated");
+    $("pListsInfo").textContent = "On this phone: " + S.users.length + " user(s), " + (S.mm ? S.mm.rows.length.toLocaleString() : 0) + " part(s), " + S.options.teams.length + " responsibilities, " + S.options.issue_types.length + " issue types." + (at ? " Updated " + fmtLogged(at) + "." : "");
+  }
+  async function useMaterialRows(rows) { await idbPut("materialRows", rows); await idbPut("material", null); indexMaterial(rows); }
+  async function useOptions(o) {
+    if (!o || !o.teams || !o.teams.length || !o.issue_types || !o.issue_types.length) throw new Error("the Responsibility / Issue Type lists are empty");
+    S.options = { teams: o.teams, issue_types: o.issue_types }; await idbPut("options", S.options);
+  }
+  async function useUsers(list) { S.users = cleanUsers(list); await idbPut("users", S.users); }
+  $("pSyncBtn").onclick = $("pSyncBtn2").onclick = function () { $("pSyncFile").click(); };
+  $("pSyncFile").onchange = async function () {
+    var files = [].slice.call($("pSyncFile").files), msg = S.user ? $("pMastersMsg") : $("setupError"), done = [], problems = [];
+    $("pSyncFile").value = "";
+    if (!files.length) return;
+    show(msg, "Reading…", "success");
+    for (var f of files) {
+      try {
+        if (/\.xlsx$/i.test(f.name)) {
+          var rows = await parseMaterial(await f.arrayBuffer());
+          await useMaterialRows(rows); done.push(rows.length.toLocaleString() + " parts");
+          continue;
+        }
+        var raw = JSON.parse(await f.text());
+        if (raw.qcosd_phone_lists) {
+          await useUsers(raw.users); done.push(S.users.length + " users");
+          if (raw.options) { await useOptions(raw.options); done.push("choices"); }
+          if (raw.material && raw.material.length) { await useMaterialRows(raw.material); done.push(raw.material.length.toLocaleString() + " parts"); }
+        } else if (Array.isArray(raw.users)) { await useUsers(raw.users); done.push(S.users.length + " users"); }
+        else if (raw.teams) { await useOptions(raw); done.push("choices"); }
+        else throw new Error("not one of the share folder's list files");
+      } catch (e) { problems.push(f.name + ": " + (e.problems ? "does not match the Material Master layout" : e.message)); }
+    }
+    if (done.length) await idbPut("listsUpdated", new Date().toISOString());
+    renderUsersInfo(S.users);
+    if (S.user) { renderOptions(); refreshPartInfo(); renderSettings(); }
+    show(msg, (done.length ? "Updated: " + done.join(", ") + "." : "") + (problems.length ? (done.length ? "\n" : "") + "Not loaded:\n• " + problems.join("\n• ") : ""), problems.length ? "error" : "success");
   };
   async function startPhone() {
     var opts = await idbGet("options");
     S.options = opts && opts.teams && opts.issue_types ? opts : clone(DEFAULT_OPTIONS);
-    var mm = await idbGet("material");
-    if (mm) { try { indexMaterial(await parseMaterial(mm)); } catch (e) { S.mm = null; } }
+    var rows = await idbGet("materialRows"), mm = rows ? null : await idbGet("material");
+    if (rows) indexMaterial(rows);
+    else if (mm) { try { indexMaterial(await parseMaterial(mm)); } catch (e) { S.mm = null; } }
     S.drafts = (await idbGet("drafts")) || [];
     $("setup").hidden = true; $("app").hidden = false;
     renderOptions(); resetForm(); renderStatus();
@@ -1158,29 +1215,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }).join("") || '<div class="card empty">No entries on this phone. Save one on the Entry tab.</div>';
     $("outboxList").querySelectorAll("[data-act]").forEach(function (b) { b.onclick = function () { outboxAction(b.dataset.act, list[+b.dataset.i]); }; });
   }
-  $("pMmBtn").onclick = function () { $("pMmFile").click(); };
-  $("pOptBtn").onclick = function () { $("pOptFile").click(); };
-  $("pMmFile").onchange = async function () {
-    var f = $("pMmFile").files[0]; if (!f) return;
-    show($("pMastersMsg"), "Checking the file…", "success");
-    try {
-      var buf = await f.arrayBuffer(), rows = await parseMaterial(buf);
-      await idbPut("material", buf); indexMaterial(rows); refreshPartInfo(); renderSettings();
-      show($("pMastersMsg"), "Loaded " + rows.length.toLocaleString() + " parts.", "success");
-    } catch (e) { show($("pMastersMsg"), e.problems ? "This file does not match the Material Master layout.\n• " + e.problems.join("\n• ") : e.message, "error"); }
-    $("pMmFile").value = "";
-  };
-  $("pOptFile").onchange = async function () {
-    var f = $("pOptFile").files[0]; if (!f) return;
-    try {
-      var raw = JSON.parse(await f.text());
-      if (!raw.teams || !raw.teams.length || !raw.issue_types || !raw.issue_types.length) throw new Error("This is not the share folder's options.json.");
-      S.options = { teams: raw.teams, issue_types: raw.issue_types };
-      await idbPut("options", S.options); renderOptions();
-      show($("pMastersMsg"), "Loaded " + raw.teams.length + " responsibilities and " + raw.issue_types.length + " issue types.", "success");
-    } catch (e) { show($("pMastersMsg"), e.message, "error"); }
-    $("pOptFile").value = "";
-  };
 
   // ---------- list ----------
   function filtered() {
