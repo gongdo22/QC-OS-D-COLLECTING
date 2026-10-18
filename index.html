@@ -478,7 +478,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
  * inbox on Refresh. */
 (function () {
   "use strict";
-  var APP_VERSION = "V1.5";  // bump on every release; build.py names the file QC-OSD_<version>.html
+  var APP_VERSION = "V1.6";  // bump on every release; build.py names the file QC-OSD_<version>.html
   var FORMAT_VERSION = 1;
   var MAX_BYTES = 20 * 1024 * 1024;
   var SHIFTS = ["SHIFT1", "SHIFT2"];
@@ -702,7 +702,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if (e.kind === "file" && UPLOAD_NAME.test(e.name)) out.push({ dir: d, entry: e, where: "inbox/", strict: true });
       else if (e.kind === "directory") for await (var e2 of e.values()) if (e2.kind === "file" && UPLOAD_NAME.test(e2.name)) out.push({ dir: e, entry: e2, where: "inbox/" + e.name + "/", strict: true });
     }
-    for await (var e3 of S.root.values()) if (e3.kind === "file" && /osd/i.test(e3.name) && UPLOAD_NAME.test(e3.name)) out.push({ dir: S.root, entry: e3, where: "", strict: false });
+    for await (var e3 of S.root.values()) if (e3.kind === "file" && UPLOAD_NAME.test(e3.name)) out.push({ dir: S.root, entry: e3, where: "", strict: false });
     return out;
   }
   async function importInbox() {
@@ -712,7 +712,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       var entry = it.entry, d = it.dir;
       try {
         var b;
-        try { b = JSON.parse(await (await entry.getFile()).text()); } catch (e) { if (!it.strict) continue; throw new Error("not a QC OS&D upload (could not read it as an upload file)"); }
+        var file = await entry.getFile();
+        if (!it.strict && !/osd/i.test(entry.name) && file.size > 300) continue;  // unrelated files at the top of the share folder
+        var text = await file.text();
+        // Older versions shared a title too, which iOS saves as a separate one-line text file holding the upload's name: remove it.
+        if (/^[^\n{]{1,250}\.osd(?: \d+)?\.txt\s*$/i.test(text.trim())) { await d.removeEntry(entry.name); continue; }
+        try { b = JSON.parse(text); } catch (e) { if (!it.strict) continue; throw new Error("not a QC OS&D upload (could not read it as an upload file)"); }
         if (!b || !b.qcosd_bundle) { if (!it.strict) continue; throw new Error("not a QC OS&D upload"); }
         found++;
         if (!b.report || !b.report.report_id || !b.report.part_number) throw new Error("the upload is incomplete");
@@ -1315,7 +1320,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     try {
       var file = await bundleFile(d), shared = act === "upload" && !!navigator.canShare && navigator.canShare({ files: [file] });
       if (shared) {
-        try { await navigator.share({ files: [file], title: file.name }); }
+        try { await navigator.share({ files: [file] }); }
         catch (e) { if (e.name === "AbortError") return; throw e; }
       } else downloadFile(file);
       await markUploaded(d);
